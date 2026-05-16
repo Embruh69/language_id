@@ -392,36 +392,28 @@ with col_left:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── ICE server config ─────────────────────────────────────────────────────
-    # Streamlit Cloud runs behind a strict NAT/firewall that blocks direct UDP.
-    # STUN alone is not enough — TURN relay servers are required.
-    # We use Open Relay (free, provided by Metered) + multiple STUN fallbacks.
-    # If you have a Twilio account, replace these with Twilio TURN credentials
-    # from st.secrets for better reliability.
-    ICE_SERVERS = {
-        "iceServers": [
-            # STUN servers (try direct first)
-            {"urls": ["stun:stun.l.google.com:19302"]},
-            {"urls": ["stun:stun1.l.google.com:19302"]},
-            {"urls": ["stun:stun.relay.metered.ca:80"]},
-            # TURN servers via Open Relay (free — no account needed)
-            {
-                "urls": "turn:openrelay.metered.ca:80",
-                "username": "openrelayproject",
-                "credential": "openrelayproject",
-            },
-            {
-                "urls": "turn:openrelay.metered.ca:443",
-                "username": "openrelayproject",
-                "credential": "openrelayproject",
-            },
-            {
-                "urls": "turn:openrelay.metered.ca:443?transport=tcp",
-                "username": "openrelayproject",
-                "credential": "openrelayproject",
-            },
-        ]
-    }
+    # ── ICE / TURN config ─────────────────────────────────────────────────────
+    # Streamlit Cloud runs behind a strict NAT that blocks direct UDP.
+    # Twilio's Network Traversal Service is the most reliable free TURN option.
+    # Setup (free, ~2 min):
+    #   1. Sign up at https://www.twilio.com  (no credit card for free tier)
+    #   2. Dashboard → Account Info → copy Account SID and Auth Token
+    #   3. In Streamlit Cloud → your app → Settings → Secrets, add:
+    #        TWILIO_ACCOUNT_SID = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    #        TWILIO_AUTH_TOKEN  = "your_auth_token"
+    def _get_ice_servers():
+        try:
+            from twilio.rest import Client
+            sid   = st.secrets["TWILIO_ACCOUNT_SID"]
+            token = st.secrets["TWILIO_AUTH_TOKEN"]
+            client    = Client(sid, token)
+            nts_token = client.tokens.create()
+            return {"iceServers": nts_token.ice_servers}
+        except Exception:
+            # Fallback: STUN only (works on most home networks, fails on cloud)
+            return {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+
+    ICE_SERVERS = _get_ice_servers()
 
     # WebRTC mic widget
     ctx = webrtc_streamer(
