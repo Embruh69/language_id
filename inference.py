@@ -20,8 +20,17 @@ import numpy as np
 import librosa
 import cv2
 import joblib
-import tensorflow as tf
 from dataclasses import dataclass, field
+
+try:
+    import tensorflow as tf
+except ImportError:
+    # tensorflow-cpu installs under the same 'tensorflow' import name;
+    # if both fail something is wrong with the environment.
+    raise ImportError(
+        "TensorFlow not found. Install tensorflow-cpu==2.18.1 "
+        "(see requirements.txt)."
+    )
 
 
 # ── Constants (must match training config exactly) ────────────────────────────

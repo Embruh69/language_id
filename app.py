@@ -26,6 +26,17 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+# ── Python version guard ──────────────────────────────────────────────────────
+if sys.version_info >= (3, 12):
+    import streamlit as st
+    st.error(
+        f"⛔ Python {sys.version_info.major}.{sys.version_info.minor} detected. "
+        "TensorFlow requires Python ≤ 3.11.  "
+        "Add a `.python-version` file containing `3.11` to your repo root and redeploy.",
+        icon="⛔",
+    )
+    st.stop()
+
 import av
 import numpy as np
 import streamlit as st
