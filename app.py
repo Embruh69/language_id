@@ -393,27 +393,27 @@ with col_left:
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── ICE / TURN config ─────────────────────────────────────────────────────
-    # Streamlit Cloud runs behind a strict NAT that blocks direct UDP.
-    # Twilio's Network Traversal Service is the most reliable free TURN option.
-    # Setup (free, ~2 min):
-    #   1. Sign up at https://www.twilio.com  (no credit card for free tier)
-    #   2. Dashboard → Account Info → copy Account SID and Auth Token
-    #   3. In Streamlit Cloud → your app → Settings → Secrets, add:
-    #        TWILIO_ACCOUNT_SID = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-    #        TWILIO_AUTH_TOKEN  = "your_auth_token"
-    def _get_ice_servers():
+    # Fetch TURN credentials from Metered.ca once per session and cache them.
+    # Sign up free at https://dashboard.metered.ca → TURN → copy your API Key
+    # Add to Streamlit secrets:  METERED_API_KEY = "your_key"
+    if "ice_servers" not in st.session_state:
         try:
-            from twilio.rest import Client
-            sid   = st.secrets["TWILIO_ACCOUNT_SID"]
-            token = st.secrets["TWILIO_AUTH_TOKEN"]
-            client    = Client(sid, token)
-            nts_token = client.tokens.create()
-            return {"iceServers": nts_token.ice_servers}
+            import requests as _requests
+            api_key = st.secrets["METERED_API_KEY"]
+            # Your Metered app domain — set METERED_DOMAIN in Streamlit secrets
+            # e.g. METERED_DOMAIN = "myapp.metered.live"
+            domain  = st.secrets.get("METERED_DOMAIN", "demo.metered.live")
+            resp    = _requests.get(
+                f"https://{domain}/api/v1/turn/credentials",
+                params={"apiKey": api_key},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            st.session_state.ice_servers = {"iceServers": resp.json()}
         except Exception:
-            # Fallback: STUN only (works on most home networks, fails on cloud)
-            return {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-
-    ICE_SERVERS = _get_ice_servers()
+            st.session_state.ice_servers = {
+                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+            }
 
     # WebRTC mic widget
     ctx = webrtc_streamer(
@@ -422,7 +422,7 @@ with col_left:
         audio_processor_factory=AudioProcessor,
         media_stream_constraints={"audio": True, "video": False},
         async_processing=True,
-        rtc_configuration=ICE_SERVERS,
+        rtc_configuration=st.session_state.ice_servers,
     )
 
     # Status pill
