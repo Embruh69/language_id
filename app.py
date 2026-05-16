@@ -392,6 +392,37 @@ with col_left:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # ── ICE server config ─────────────────────────────────────────────────────
+    # Streamlit Cloud runs behind a strict NAT/firewall that blocks direct UDP.
+    # STUN alone is not enough — TURN relay servers are required.
+    # We use Open Relay (free, provided by Metered) + multiple STUN fallbacks.
+    # If you have a Twilio account, replace these with Twilio TURN credentials
+    # from st.secrets for better reliability.
+    ICE_SERVERS = {
+        "iceServers": [
+            # STUN servers (try direct first)
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {"urls": ["stun:stun1.l.google.com:19302"]},
+            {"urls": ["stun:stun.relay.metered.ca:80"]},
+            # TURN servers via Open Relay (free — no account needed)
+            {
+                "urls": "turn:openrelay.metered.ca:80",
+                "username": "openrelayproject",
+                "credential": "openrelayproject",
+            },
+            {
+                "urls": "turn:openrelay.metered.ca:443",
+                "username": "openrelayproject",
+                "credential": "openrelayproject",
+            },
+            {
+                "urls": "turn:openrelay.metered.ca:443?transport=tcp",
+                "username": "openrelayproject",
+                "credential": "openrelayproject",
+            },
+        ]
+    }
+
     # WebRTC mic widget
     ctx = webrtc_streamer(
         key="lang-id",
@@ -399,9 +430,7 @@ with col_left:
         audio_processor_factory=AudioProcessor,
         media_stream_constraints={"audio": True, "video": False},
         async_processing=True,
-        rtc_configuration={
-            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-        },
+        rtc_configuration=ICE_SERVERS,
     )
 
     # Status pill
