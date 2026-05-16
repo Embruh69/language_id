@@ -393,24 +393,59 @@ with col_left:
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── ICE / TURN config ─────────────────────────────────────────────────────
-    # Fetch TURN credentials from Metered.ca once per session and cache them.
-    # Sign up free at https://dashboard.metered.ca → TURN → copy your API Key
-    # Add to Streamlit secrets:  METERED_API_KEY = "your_key"
+    # Streamlit Cloud blocks all outbound UDP. We must use TURN over TCP/443
+    # (indistinguishable from HTTPS traffic — passes every firewall).
+    #
+    # We fetch Metered credentials then KEEP ONLY tcp/443 TURN entries.
+    # All UDP and plain STUN entries are stripped — they will never work
+    # on Streamlit Cloud and cause the NoneType/sendto crash cascade.
+    #
+    # Secrets needed (Streamlit Cloud → Settings → Secrets):
+    #   METERED_API_KEY = "your_key"
+    #   METERED_DOMAIN  = "yourapp.metered.live"
     if "ice_servers" not in st.session_state:
         try:
-            import requests as _requests
+            import requests as _req
             api_key = st.secrets["METERED_API_KEY"]
-            # Your Metered app domain — set METERED_DOMAIN in Streamlit secrets
-            # e.g. METERED_DOMAIN = "myapp.metered.live"
             domain  = st.secrets.get("METERED_DOMAIN", "demo.metered.live")
-            resp    = _requests.get(
+            resp    = _req.get(
                 f"https://{domain}/api/v1/turn/credentials",
                 params={"apiKey": api_key},
                 timeout=5,
             )
             resp.raise_for_status()
-            st.session_state.ice_servers = {"iceServers": resp.json()}
-        except Exception:
+            all_servers = resp.json()
+
+            # Keep only TCP-443 TURN entries — these survive strict NAT/firewalls
+            def _is_tcp443(server):
+                urls = server.get("urls", "")
+                if isinstance(urls, str):
+                    urls = [urls]
+                return any("443?transport=tcp" in u or
+                           ("turn:" in u and "tcp" in u and "443" in u)
+                           for u in urls)
+
+            tcp_servers = [s for s in all_servers if _is_tcp443(s)]
+
+            # If Metered returned no TCP entries, build one explicitly
+            if not tcp_servers:
+                # Extract username/credential from any TURN entry
+                turn_entries = [s for s in all_servers
+                                if any("turn:" in u
+                                       for u in ([s["urls"]] if isinstance(s["urls"], str)
+                                                 else s["urls"]))]
+                if turn_entries:
+                    cred = turn_entries[0]
+                    tcp_servers = [{
+                        "urls":       f"turns:{domain}:443?transport=tcp",
+                        "username":   cred.get("username", ""),
+                        "credential": cred.get("credential", ""),
+                    }]
+
+            st.session_state.ice_servers = {"iceServers": tcp_servers or all_servers}
+
+        except Exception as e:
+            # Last-resort fallback — will only work if user is on home network
             st.session_state.ice_servers = {
                 "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
             }
