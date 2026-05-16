@@ -26,17 +26,6 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# ── Python version guard ──────────────────────────────────────────────────────
-if sys.version_info >= (3, 12):
-    import streamlit as st
-    st.error(
-        f"⛔ Python {sys.version_info.major}.{sys.version_info.minor} detected. "
-        "TensorFlow requires Python ≤ 3.11.  "
-        "Add a `.python-version` file containing `3.11` to your repo root and redeploy.",
-        icon="⛔",
-    )
-    st.stop()
-
 import av
 import numpy as np
 import streamlit as st
@@ -302,18 +291,18 @@ html, body, [data-testid="stAppViewContainer"] {
 </style>
 """, unsafe_allow_html=True)
 
-# ── Session state init ────────────────────────────────────────────────────────
+# ── Module-level queue — shared between the WebRTC background thread and the
+#    Streamlit main thread. Must NOT live in st.session_state because the
+#    AudioProcessor is instantiated in a background thread that has no access
+#    to session state.
+WORD_QUEUE: queue.Queue = queue.Queue()
+
+# ── Session state init (UI-only state) ───────────────────────────────────────
 def _init_state():
-    if "word_queue"    not in st.session_state:
-        st.session_state.word_queue    = queue.Queue()
     if "history"       not in st.session_state:
         st.session_state.history       = []   # list[Prediction]
     if "latest"        not in st.session_state:
         st.session_state.latest        = None
-    if "model_loaded"  not in st.session_state:
-        st.session_state.model_loaded  = False
-    if "model"         not in st.session_state:
-        st.session_state.model         = None
     if "total_words"   not in st.session_state:
         st.session_state.total_words   = 0
     if "total_latency" not in st.session_state:
@@ -344,7 +333,7 @@ class AudioProcessor(AudioProcessorBase):
 
     def __init__(self):
         self._vad   = VoiceActivityDetector()
-        self._queue = st.session_state.word_queue
+        self._queue = WORD_QUEUE   # module-level global — safe from background thread
 
     def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
         # Convert to float32 numpy array (mono)
@@ -391,6 +380,7 @@ with col_left:
     if model is None:
         st.warning(
             "⚠️ Model not found. Place your `model_artefacts/` directory "
+            "(containing `language_id_model.onnx`, `scaler.pkl`, `label_encoder.pkl`) "
             "next to `app.py` and restart.",
             icon="⚠️",
         )
@@ -565,13 +555,10 @@ with col_right:
 #  Main polling loop — drain the word queue and run inference
 # ═══════════════════════════════════════════════════════════════════════════════
 if is_live and model is not None:
-    word_q: queue.Queue = st.session_state.word_queue
-
     processed = 0
-    # Drain up to 5 words per Streamlit rerun to keep UI responsive
     while processed < 5:
         try:
-            word_seg: WordSegment = word_q.get_nowait()
+            word_seg: WordSegment = WORD_QUEUE.get_nowait()
         except queue.Empty:
             break
 
